@@ -11,5 +11,5 @@ Sessions given autumn 2020 and 2021 (the files below are from the last iteration
 ## Part B: Introduction to Bayesian data analysis
 Session given spring 2023
 
-- Slide deck [ HTML | Quarto markdowm ]
-- Exercises [ Descriptions | Answers ]
+- Slide deck [ HTML ] [Quarto markdowm ]
+- Exercises [ Descriptions ] [ Answers ]
