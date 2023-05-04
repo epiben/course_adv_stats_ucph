@@ -5,8 +5,8 @@ My course materials for parts A and B of the PhD course *Advanced statistical to
 ## Part A: Cross-validation and penalised regression models
 Sessions given autumn 2020 and 2021 (the files below are from the last iteration).
 
-- [Slide deck](E21_adv_stats_topics_ptA_slide_deck_day4.pdf)
-- Rmarkdown notebook with code for slide deck and exercises: [ [Rmarkdown](Code-for-slide-deck-on-penalised-and-cross-validation.Rmd) ] [ [HTML](https://htmlpreview.github.io/?https://github.com/epiben/course_adv_stats_A/blob/main/Code-for-slide-deck-on-penalised-and-cross-validation.html) ]
+- Slide deck [ [PDF](cv_regureg/E21_adv_stats_topics_ptA_slide_deck_day4.pdf) ]
+- Rmarkdown notebook with code for slide deck and exercises: [ [Rmarkdown](cv_regureg/Code-for-slide-deck-on-penalised-and-cross-validation.Rmd) ] [ [HTML](https://htmlpreview.github.io/?https://github.com/epiben/course_adv_stats_ucph/blob/main/cv_regureg/Code-for-slide-deck-on-penalised-and-cross-validation.html) ]
 
 ## Part B: Introduction to Bayesian data analysis
 Session given spring 2023
