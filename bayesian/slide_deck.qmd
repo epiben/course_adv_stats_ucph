@@ -1,0 +1,925 @@
+---
+title: "Introdution to Bayesian data analyses - Advanced Statistical Topis B"
+author: "Benjamin Skov Kaas-Hansen"
+format: 
+    revealjs:
+        theme: [dark, custom.scss]
+        scrollable: false
+        slide-number: true
+        show-slide-number: all
+        self-contained: true
+execute:
+  echo: false
+  cache: false
+editor: source
+---
+
+# -1. Preamble
+
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(purrr)
+library(rstanarm)
+library(coda)
+library(adaptr)
+library(bayesplot)
+
+presentation_theme <- theme_minimal()
+theme_set(presentation_theme)
+
+options(mc.cores = 4)
+```
+
+
+::: notes
+Glance over very quickly, "could spend a lot of time on this, but we won't"
+:::
+
+## Kolmogorov and probability {.smaller .center}
+
+Let $(\Omega, F, P)$ be a measure space. If $P(E)$ is the probability of an event $E$, then $(\Omega, F, P)$ is a *probability space* with sample space $\Omega$, event space $F$ and probability measure $P$. Three axioms:
+
+<br>
+
+The probability of an event is a non-negative real number: $P(E) \in \mathbb{R} \text{ and } P(E) \geq 0 \quad \forall E \in F$
+
+<br>
+
+At least one of the events in the entire set $\Omega$ will occur: $P(\Omega) = 1$
+
+<br>
+
+Any countable sequence of disjoint (= mutually exclusive) sets $E_1, E_2, ..., E_\infty$ satisfies: $P \left( \bigcup_{i=1}^\infty E_i \right) = \sum_{i=1}^\infty P(E_i)$
+
+## Wiener process {.smaller}
+
+Flip a coin. Tail: 1 up. Head: 1 down. Where do we end?
+
+. . .
+
+```{r}
+set.seed(4131)
+plot_df <- tibble(
+  t = seq_len(1000),
+  y = cumsum(c(0, sample(c(-1, 1), length(t) - 1, TRUE)))
+)
+
+ggplot(filter(plot_df, t <= 20), aes(x = t, y = y)) +
+  geom_line() +
+  geom_hline(yintercept = 0, linetype = 2, colour = "grey50") +
+ggplot(plot_df, aes(x = t, y = y)) +
+  geom_line() +
+  geom_hline(yintercept = 0, linetype = 2, colour = "grey50")
+```
+
+## Aye, we're good and lost now
+
+![](figs/barbosa.jpeg){fig-align="center"}
+
+Good --- then let's start over
+
+## Probability {.center}
+
+A number between 0 and 1 which encompasses my (our?) statement about uncertainty/certainty
+
+1 is complete certainty that something *is* the case
+
+0 is complete certainty that something *is not* the case
+
+Subjective measure. Can we ever be completely certain about something in the real world?
+
+## Today {.center}
+
+::: notes
+Pragmatic approach of today might hurt rigour a little
+
+More important to get our hands dirty than understanding all the technical parts
+
+In the end, how many really understand what happens under the hood when fitting a conventional logistical regression?
+
+I'm trying present this the way I would've wanted to be introduced myself
+
+Many BDA courses will have you build your own sampler; we won't do that although I recommend it for those who would like to better understand what goes on under the hood of Stan
+
+How many know what the Hessian is? Do you think you need to, to use normal methods? Nope! Similarly with Bayesian methods: trust that way smarter people have devised clever ways to get the estimates you need. For diagnostics, some knowledge can be useful but not required
+:::
+
+Very pragmatic and applied
+
+Get real experience with Bayesian analysis
+
+We won't get lost in technical details
+
+Off-the-shelve software: as easy as other statistical models
+
+Study design and data collection ≠ data analysis
+
+## Learning objectives {.center}
+
+Don't be afraid of Bayesian analyses
+
+Describe the applications of Bayesian analysis
+
+Express prior belief with probability distributions
+
+Fit Bayesian GLMs
+
+Complete the five steps of BDA
+
+Follow the guidelines for reporting Bayesian analyses
+
+## Programme {.center}
+
+Follows the 5 steps of Bayesian analyses
+
+-   Design phase
+    1.  Characterise data
+
+    2.  Define appropriate data model
+
+    3.  Specify priors
+-   Analysis
+    4.  Update parameters in light of new data
+
+    5.  Diagnostics (convergence and posterior predictive checks)
+
+Frequent breaks. You present the exercises to each other.
+
+## Me {.center}
+
+Medical doctor with MSc and PhD
+
+Postdoc in intensive care
+
+Bayesian platform trial (methods and data science)
+
+Mainly real-world evidence (routine-care and PRO data)
+
+# 0. Probability and Bayesianism
+
+## Decision problems {.center}
+
+"The Bayesian approach is tailored to decision making.
+
+Designing a clinical trial is a decision problem.
+
+Drawing a conclusion from a trial (...) is a decision problem.
+
+Allocating resources among various research projects is a decision problem.
+
+Stopping drug development is a decision problem."
+
+## A formalism for human intuition {.center}
+
+$P(\theta | D) \propto P(D | \theta) \times P(\theta)$
+
+posterior $\propto$ likelihood $\times$ prior\
+\
+Start with a belief about something
+
+Observe the world to learn something new
+
+Update your belief in light of these new observations\
+\
+We make probability statements about model parameters
+
+Derived quantities follow directly (as we'll see)
+
+## Scientific questions {.center}
+
+What is the average weight of patients?
+
+What is the effect of this treatment? Is it better than placebo?
+
+Will our capacity be exhausted tomorrow?
+
+## Bayesian benefits {.center}
+
+Formalism for human intuition
+
+Priors express pre-existing knowledge (or expectations)
+
+Easier to build complex models
+
+Use priors to regularise estimation
+
+Modelling uncertainty enables decision analysis
+
+## Bayesian barriers {.center}
+
+-   Seen as complicated and "mathy"
+
+-   Erroneous idea that Bayesian analyses are subjective (and, thus, unreliable) and frequentist are objective
+
+-   It's a bit more tricky than conventional analyses
+
+-   Devising reasonable priors not trivial
+
+-   You force yourself to formalise existing knowledge or lack thereof
+
+-   Frequentist methods the "go-to" in health research
+
+## Example
+
+The proportion of women among patients at a 22-bed ICU on a given day? Prior: Equal distribution between women and men. Data: 8 women. The next day?
+
+. . .
+
+```{r}
+pretty <- c(
+  prior = "1. Prior", 
+  likelihood = "2. Data", 
+  posterior = "3. Posterior"
+)
+
+a <- b <- 11
+z <- 8
+n <- 22
+
+tibble(
+  theta_grid = seq(0, 1, length.out = 1000),
+  prior = dbeta(theta_grid, a, b),
+  likelihood = dbeta(theta_grid, z, n - z),
+  posterior = dbeta(theta_grid, a + z, b + n - z)
+) %>%
+  pivot_longer(-theta_grid, names_to = "k", values_to = "dens") %>% 
+  mutate(k = pretty[k]) %>% 
+  ggplot(aes(x = theta_grid, y = dens)) +
+    geom_line() +
+    facet_wrap(~ k, ncol = 1) +
+    coord_cartesian(xlim = 0:1) +
+    scale_x_continuous(labels = scales::percent) +
+    theme(axis.text.y = element_blank(), axis.title = element_blank(), 
+          legend.title = element_blank())
+```
+
+What might be wrong with this conclusion? What do we assume?
+
+## Probability distributions
+
+::: notes
+Look at a few PDFs and CDFs to get acquainted with them. MAP = the mode.
+:::
+
+```{r}
+#| echo: false
+
+dist_mode <- function(x, ...) { # ... passed on to density()
+  with(density(x, ...), x[which.max(y)])
+}
+
+plot_pdf_cdf <- function(alpha, beta) {
+    mean_line <- geom_vline(xintercept = alpha/(alpha + beta), linetype = 1, colour = "red")
+    median_line <- geom_vline(xintercept = qbeta(0.5, alpha, beta), linetype = 2, colour = "red")
+    mode_line <- geom_vline(xintercept = (alpha - 1)/(alpha + beta - 2), linetype = 3, colour = "red")
+    
+    p_pdf <- ggplot() + 
+        stat_function(fun = ~ dbeta(., alpha, beta), xlim = c(0, 1), n = 1000) +
+        mean_line +
+        median_line +
+        mode_line + 
+        labs(y = "Density", x = "", title = "Probability density function") +
+        scale_x_continuous(labels = scales::percent)
+    
+    p_cdf <- ggplot() +
+        stat_function(fun = ~ pbeta(., alpha, beta), xlim = c(0, 1), n = 1000) +
+        mean_line +
+        median_line +
+        mode_line + 
+        geom_text(aes(label = sprintf("alpha = %s, beta = %s", alpha, beta), 
+                      x = 1, y = 0), hjust = 1, vjust = 0) +
+        labs(x = "90-day mortality risk", y = "Cumulative probability",
+             title = "Cumulative density function") +
+        scale_x_continuous(labels = scales::percent)
+    
+    p_pdf / p_cdf
+}
+```
+
+::: panel-tabset
+### Ex. 1
+
+```{r}
+#| echo: false
+plot_pdf_cdf(2, 2)
+```
+
+### Ex. 2
+
+```{r}
+#| echo: false
+plot_pdf_cdf(2, 8)
+```
+
+### Ex. 3
+
+```{r}
+#| echo: false
+plot_pdf_cdf(30, 70)
+```
+
+### Ex. 4
+
+```{r}
+#| echo: false
+set.seed(4131)
+n_samples <- 10000
+mixture_samples_1 <- rbeta(n_samples, 300, 700)
+mixture_samples_2 <- rbeta(n_samples, 350, 650)
+mixture_samples <- c(mixture_samples_1, mixture_samples_2)
+
+ggplot() + 
+  stat_density(aes(x = mixture_samples), geom = "line", trim = TRUE) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "90-day mortality risk", y = "") +
+ggplot() +
+  stat_ecdf(aes(x = mixture_samples), pad = FALSE) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(x = "90-day mortality risk", y = "") +
+plot_layout(ncol = 1)
+```
+
+### Ex. 5
+
+```{r}
+#| echo: false
+ggplot() + 
+  stat_density(aes(x = mixture_samples, y = after_stat(density) * 2), 
+               geom = "line", trim = TRUE, bw = 0.01) +
+  geom_density(aes(x = mixture_samples_1, fill = "1"), linewidth = 0, 
+               alpha = 0.2, trim = TRUE, bw = 0.01) +
+  geom_density(aes(x = mixture_samples_2, fill = "2"), linewidth = 0, 
+               alpha = 0.2, trim = TRUE, bw = 0.01) +
+  scale_x_continuous(labels = scales::percent) +
+  guides(fill = "none") +
+  labs(x = "90-day mortality risk", y = "")  
+```
+:::
+
+## Credible intervals
+
+::: panel-tabset
+### CI
+
+Interpret this confidence interval (CI):
+
+```{r}
+ci95 <- qbeta(c(0.025, 0.975), 70, 30)
+point_est <- mean(ci95)
+est_label <- sprintf("%1.f (%1.f-%1.f)", 100*point_est, 100*ci95[1], 100*ci95[2])
+
+ggplot() +
+  geom_line(aes(x = ci95, y = 0)) +
+  geom_point(aes(x = point_est, y = 0)) +
+  geom_text(aes(x = point_est, y = 0, label = est_label), vjust = -1.5) +
+  labs(x = "90-day mortality risk", y = "") +
+  coord_cartesian(xlim = 0:1, ylim = 0:1) +
+  scale_x_continuous(labels = scales::percent) +
+  theme(axis.text.y = element_blank())
+```
+
+### CrI
+
+Repeat after me: it's as simple as this.
+
+```{r}
+plot_df <- tibble(
+  x = 0:1000/1000,
+  dens = dbeta(x, 70, 30),
+  cum_dens = pbeta(x, 70, 30),
+  is_95_hdi = between(x, qbeta(0.025, 70, 30), qbeta(0.975, 70, 30)),
+  is_75_hdi = between(x, qbeta(0.25, 70, 30), qbeta(0.75, 70, 30))
+)
+
+ggplot(plot_df, aes(x = x, y = dens)) +
+  geom_area(data = ~ filter(., is_95_hdi), fill = "dodgerblue", alpha = 0.2) +
+  geom_area(data = ~ filter(., is_75_hdi), fill = "dodgerblue", alpha = 0.2) +
+  annotate(geom = "text", x = point_est, y = 0, label = est_label, vjust = -1.5) +
+  geom_line() +
+  geom_line(aes(y = 0),  ~ filter(., is_95_hdi)) +
+  geom_point(aes(x = mean(x), y = 0), ~ filter(., is_95_hdi)) +
+  coord_cartesian(xlim = 0:1) +
+  labs(x = "90-day mortality risk", y = "") +
+  scale_x_continuous(labels = scales::percent) +
+  theme(axis.text.y = element_blank())
+```
+
+### CrI (CDF)
+
+On the CDF we can easily read these credible intervals.
+
+```{r}
+ggplot(plot_df, aes(x = x, y = cum_dens)) +
+  geom_area(data = ~ filter(., is_95_hdi), fill = "dodgerblue", alpha = 0.2) +
+  geom_area(data = ~ filter(., is_75_hdi), fill = "dodgerblue", alpha = 0.2) +
+  geom_line() +
+  geom_line(aes(y = 0),  ~ filter(., is_95_hdi)) +
+  geom_point(aes(x = mean(x), y = 0), ~ filter(., is_95_hdi)) +
+  coord_cartesian(xlim = c(0.5, 0.8)) +
+  labs(x = "90-day mortality risk", y = "") +
+  scale_x_continuous(labels = scales::percent) +
+  scale_y_continuous(breaks = c(0.025, 0.25, 0.5, 0.75, 0.975), minor_breaks = 0:1)
+```
+
+### CI (mix)
+
+```{r}
+ggplot() +
+  geom_line(aes(x = quantile(mixture_samples, c(0.025, 0.975)), y = 0)) +
+  geom_point(aes(x = mean(quantile(mixture_samples, c(0.025, 0.975))), y = 0)) +
+  labs(x = "90-day mortality risk", y = "") +
+  coord_cartesian(xlim = 0:1, ylim = 0:1) +
+  scale_x_continuous(labels = scales::percent) +
+  theme(axis.text.y = element_blank())
+```
+
+### CrI (mix)
+
+```{r}
+qs <- quantile(mixture_samples, c(0.025, 0.975))
+plot_df <- density(mixture_samples) %>% 
+  with(tibble(
+  x = x,
+  dens = y,
+  is_95_hdi = between(x, qs[1], qs[2])
+))
+
+ggplot(plot_df, aes(x = x, y = dens)) +
+  geom_area(data = ~ filter(., is_95_hdi), fill = "dodgerblue", alpha = 0.2) +
+  geom_line() +
+  geom_line(aes(y = 0),  ~ filter(., is_95_hdi)) +
+  geom_point(aes(x = mean(x), y = 0), ~ filter(., is_95_hdi)) +
+  labs(x = "90-day mortality risk", y = "") +
+  coord_cartesian(xlim = 0:1) +
+  scale_x_continuous(labels = scales::percent) +
+  theme(axis.text.y = element_blank())
+```
+
+### HPDI
+
+```{r}
+posterior_samples <- rbeta(1000, 2, 8)
+(hpdi <- HPDinterval(as.mcmc(posterior_samples)))
+(cri <- quantile(posterior_samples, c(0.025, 0.975)))
+```
+
+```{r}
+#| echo: false
+plot_df <- with(density(posterior_samples), tibble(x, dens = y)) %>% 
+  mutate(
+    in_95cri = between(x, cri[1], cri[2]),
+    in_95hpdi = between(x, hpdi[1], hpdi[2])
+  )
+
+ggplot(plot_df, aes(x = x, y = dens)) +
+  geom_line() +
+  geom_area(aes(fill = "95% CrI"), ~ filter(., in_95cri), alpha = 0.2) +
+  geom_area(aes(fill = "95% HPDI"), ~ filter(., in_95hpdi), alpha = 0.2)
+```
+:::
+
+# Break?
+
+# 5 steps in a Bayesian analysis
+
+# 1. Characterise data (outcome)
+
+-   Numeric (interval, ratio, discrete) - Normal, log-Normal, Poisson
+-   Binary - Binomial
+-   Time to event - survival analysis
+-   Categorical or ordinal - Multinomial
+-   Other type (e.g. per 1,000 patienter or per day) - offset Poisson
+
+# 2. Appropriate data model
+
+## Example
+
+-   RCT with 2 arms
+
+-   We're interested in the probability of death (= mortality risk) $\theta$ in each arm
+
+-   Count outcome =\> Binomial likelihood
+
+-   Outcomes across patients assumed independent
+
+|           |                 ECMO                  |               Control               |
+|------------------|:--------------------------:|:------------------------:|
+| Deaths    |            $z_\text{ecmo}$            |           $z_\text{ctl}$            |
+| Survivors |            $N_\text{ecmo} - z_\text{ecmo}$            |           $N_\text{ctl} - z_\text{ctl}$            |
+| Risk      | $\frac{z_\text{ecmo}}{N_\text{ecmo}}$ | $\frac{z_\text{ctl}}{N_\text{ctl}}$ |
+
+## Estimation {.center}
+
+-   Conjugate analysis
+    -   Easy and simple, inadequate for any real analysis
+-   Sampling
+    -   Simple: naive and inefficeient (but correct)
+    -   Markov chain Monte Carlo (MCMC): efficient and now simple to use
+
+## The binomial model {.center}
+
+-   $N$ independent trials (e.g. in each arm if RCT)
+
+    -   Called Bernoulli model if $N = 1$
+
+-   Two possible outcomes: success (1) and failure (0)
+
+-   $z$ is the number of successes observed
+
+-   Each trial has the same probability of success = $\theta$
+
+    -   The parameter to be estimated
+
+## Conjugate analysis {.center}
+
+-   The posterior distribution is the same type as the prior
+-   Over-simplistic for any realistic analysis
+-   Prior: $\theta_\text{prior} \sim$ Beta($\alpha$, $\beta$)
+
+    -   Think of $\alpha$ and $\beta$ as the numbers without and with the event
+-   Likelihood: $z \sim$ Binomial($N$, $\theta_\text{prior}$)
+
+    -   $z$ and $N$ are observed data points
+
+-   Posterior: $\theta_\text{posterior} \sim$ Beta($\alpha + z$, $\beta + N - z$)
+
+## Simple sampling {.center}
+
+Naive (but correct) approach for Binomial likelihood:
+
+1.  Assume prior distribution of $\theta$ (any will do)
+
+2.  Draw one $\theta'$from prior distribution
+
+3.  Draw a sample outcome $z'$ given $\theta'$
+
+4.  Keep $\theta'$ if $z'$ is the same as the observed $z$
+
+5.  Repeat 2. through 4. a large number of times
+
+## Simple sampling (cont.)
+
+::: panel-tabset
+### Code
+
+```{r}
+#| echo: true
+n_samples <- 1000
+z_observed <- 8 # no. women
+N_observed <- 22 # no. beds
+
+theta_prime <- runif(n_samples, 0, 1)
+z_prime <- rbinom(n_samples, N_observed, theta_prime)
+posterior_samples <- theta_prime[z_prime == z_observed]
+
+median_95CrI <- quantile(posterior_samples, probs = c(0.025, 0.5, 0.975))
+(HPDinterval(as.mcmc(posterior_samples)))
+
+p <- ggplot() + # shown in next tab
+  geom_histogram(aes(x = posterior_samples), bins = 20) +
+  geom_vline(aes(xintercept = median_95CrI), linetype = 2) +
+  geom_label(aes(y = 0, x = median_95CrI, label = round(median_95CrI, 3))) +
+  labs(x = "Proportion", y = "Frequency")
+```
+
+### Probability distribution
+
+```{r}
+#| echo: true
+p
+```
+:::
+
+# Break and exercises
+
+# 3. Devising priors
+
+## Sources {.center}
+
+-   Non-informative priors *don't* exist
+
+-   Even entirely uniform priors carry information about your expectations
+
+-   Uniform priors are implicit in frequentist results
+
+-   Published results (RCTs, observational studies)
+
+-   Domain experts
+
+-   Logical conclusions (RR \> 10 *very* unlikely)
+
+-   Regularisation of estimates
+    - Laplace prior => lasso regression
+    - Narrow Gaussian prior => ridge regression
+
+## Example: ARDS, ECMO and mortality {.center}
+
+::: panel-tabset
+### Setting
+
+-   Let's design a new trial
+-   Effect of ECMO on 60-day mortality in ARDS patients
+-   2 arms: ECMO vs. control
+-   10-100 patients in each arm
+-   How many survive in each arm?
+-   Ask 5 colleagues with lots of domain knowledge in this area:
+
+```{r}
+#| echo: true
+
+z_ecmo <- c(20, 10, 50, 20, 5) # no. deaths in ECMO arm
+n_ecmo <- c(100, 100, 100, 50, 10) # no. survivors in ECMO arm
+z_ctl <- c(40, 20, 50, 30, 4) # no. deaths in control arm
+n_ctl <- c(100, 100, 100, 50, 9) # no. survivors in control arm
+```
+
+### Resulting priors
+
+```{r}
+#| echo: false
+beta_df <- function(a, n, g, k = 0, theta_grid = 0:500/500) {
+  tibble(
+    theta = theta_grid, 
+    dens = dbeta(theta_grid, a, n - a),
+    group = g, 
+    k = k
+  ) 
+}
+
+a_ecmo <- round(mean(z_ecmo / n_ecmo * 100))
+a_ctl <- round(mean(z_ctl / n_ctl * 100))
+b_ecmo <- 100 - a_ecmo
+b_ctl <- 100 - a_ctl
+
+df_ecmo <- df_ctl <- list()
+for (i in seq(z_ecmo)) {
+  df_ecmo[[i]] <- beta_df(z_ecmo[i], "ECMO", i, n = n_ecmo[i])
+  df_ctl[[i]] <- beta_df(z_ctl[i], "Control", i, n = n_ctl[i]) 
+}
+combined_df <- bind_rows(
+  beta_df(a_ecmo, 100, "ECMO"), 
+  beta_df(a_ctl, 100, "Control")
+)
+
+mutate(bind_rows(df_ecmo, df_ctl), k = as.character(k)) %>%
+  ggplot(aes(x = theta, y = dens)) +
+    geom_area(data = combined_df, alpha = 0.2, position = "identity") +
+    geom_line(aes(colour = k), show.legend = FALSE) +
+    facet_wrap(~ group, ncol = 1) +
+    scale_color_brewer(palette = "Set2") +
+    labs(x = "Mortality risk", title = "Priors for new ECMO trial")
+```
+
+### Derived quantities
+```{r}
+#| echo: true
+tibble(
+  risk_ecmo = rbeta(1000, a_ecmo, 100),
+  risk_ctl = rbeta(1000, a_ctl, 100),
+  risk_ratio = risk_ecmo / risk_ctl
+)
+```
+
+:::
+
+## Proportions
+
+Beta distribution obvious choice: flexible and easy to intuit
+
+::: panel-tabset
+### Parameters
+
+Task: Expecting 30% proportion in a certain group and the lower bound of the 95% CrI lying at 10%, we would like to devise the corresponding beta prior.
+
+```{r}
+#| echo: true
+find_beta_params(theta = 0.3, boundary_target = 0.1, n_dec = 0)
+find_beta_params(theta = 0.3, boundary_target = 0.1, n_dec = 3)
+```
+
+### Plot (entire)
+
+```{r}
+#| echo: true
+ggplot() +
+  stat_function(fun = ~ dbeta(., 4, 10))
+```
+
+### Plot (decimal patients)
+
+```{r}
+#| echo: true
+ggplot() +
+  stat_function(fun = ~ dbeta(., 4.204, 9.809))
+```
+:::
+
+## Coefficients in logistic regression
+
+Recall that coefficients in logistic regressions are on the log-OR scale.
+
+So how do we express meaningful and realistic priors for such coefficients?
+
+For a 2x2 table we have that the approximate SD of the log-OR is given by,
+
+$\qquad \sigma = \sqrt{\frac{1}{z_0} + \frac{1}{N_0 - z_0} + \frac{1}{z_1} + \frac{1}{N_1 - z_1}}$
+
+If we assume the same event proportion $r$ in both arms and a total of $N = N_0 + N_1$ patients, we see that,
+
+$\qquad z_0 = z_1 = \tfrac{1}{2} N r, \quad N_0 - z_0 = N_1 - z_1 = \tfrac{1}{2} N (1-r)$
+
+Rearranging yields,
+
+$\qquad \sigma = \sqrt{\frac{4}{N (1-r)} + \frac{4}{Nr}}$
+
+making it easy to specify a standard deviation $\sigma$ for a prior to express no difference in a trial with a certain event proportion and of a certain size $N$
+
+# Break and exercises
+
+# 4. Update parameters in light of data
+
+## MCMC sampling with rstanarm
+
+::: panel-tabset
+
+### Data
+```{r}
+#| echo: true
+head(trees)
+```
+
+### Code
+
+```{r}
+#| echo: true
+f1 <- stan_glm(
+  Volume ~ Height,
+  data = trees,
+  chains = 4,
+  cores = 1,
+  seed = 4131,
+  iter = 4000
+)
+```
+
+### Priors
+
+Default weak priors: $N(0, 2.5)$ for the intercept and $N(0, 2.5)$ otherwise.
+
+```{r}
+#| echo: true
+prior_summary(f1)
+```
+
+### Results {.scrollable}
+
+```{r}
+#| echo: true
+summary(f1, probs = c(0.025, 0.5, 0.975))
+```
+
+### Plot
+
+Shows 50% and 95% credible intervals.
+
+```{r}
+#| echo: true
+plot(f1)
+```
+:::
+
+## MCMC concepts {.center}
+
+-   Chains: a positive integer specifying the number of Markov chains. Necessary to check convergence.
+-   Iterations: a positive integer specifying the number of iterations for each chain (including warmup). More iterations (= longer chains) yields more precise CrIs. Usually better to increase number of chains as well.
+-   Warm-up: a positive integer specifying the number iof warmup iterations per chain. Warmup iterations are not part of the resulting posterior samples.
+-   Thinning: a positive integer specifying the period for saving samples. Default is 1; uncommon with modern efficient MCMC methods
+
+## Parameter estimates
+
+::: panel-tabset
+### Code
+
+```{r}
+#| echo: true
+posterior <- as.matrix(f1)
+head(posterior)
+```
+
+### Distribution
+
+```{r}
+#| echo: true
+mcmc_areas(posterior, pars = "Height", prob = 0.8)
+```
+
+### Posterior PD
+
+```{r}
+#| echo: true
+# Sample outcomes and check if they be compatible with those observed
+post_samples <- posterior_predict(f1, draws = 500)
+ppc_dens_overlay(trees$Volume, post_samples[1:50, ])
+```
+
+### Prior PD
+
+```{r}
+#| echo: true
+prior_samples <- update(f1, prior_PD = TRUE, refresh = 0)
+mcmc_areas(prior_samples, area_method = "equal height")
+```
+
+### Shinystan
+
+```{r}
+#| echo: true
+#| eval: false
+launch_shinystan(f1)
+```
+:::
+
+# 5. Model diagnostics and reporting
+
+For all their usefulness, probabilistic results and posterior draws are all conditional on the assumptions you put into the full model.
+
+No different from frequentist results---but because Bayesian analyses explicate these assumptions, these results tend to come across as more prone to the whim of the researcher.
+
+## Diagnostics
+
+::: {.panel-tabset}
+
+### Notes
+- Ascertain convergence of chains
+- Ascertain mixing chains
+- Any divergent transition renders the results invalid (look at the `control` argument in `?rstan::stan`)
+
+### Rhat
+```{r}
+#| echo: true
+rhat(f1)
+```
+
+### Density plots
+```{r}
+#| echo: true
+mcmc_dens_overlay(f1)
+```
+
+### Trace plots
+```{r}
+#| echo: true
+mcmc_trace(f1)
+```
+
+:::
+
+## Reporting {.center}
+
+-   Specify the priors
+-   Explain how the priors were selected
+-   Describe the statistical model used
+-   Describe the techniques used in the analysis (incl. chain numbers and lengths)
+-   Identify the statistical software program used in the analysis
+-   Summarize the posterior distribution with a measure of central tendency and a credibility interval
+-   Assess the sensitivity of the analysis to different priors
+-   SAMPL guidelines: [https://doi.org/10.1016/j.ijnurstu.2014.09.006](https://doi.org/10.1016/j.ijnurstu.2014.09.006)
+
+# Break and exercises
+
+# Generating data
+
+## ICU-LOS {.scrollable}
+
+```{r}
+#| echo: true
+
+expit <- function(x) exp(x) / (1 + exp(x))
+
+N <- 1000
+N_women <- 0.4 * N
+N_men <- N - N_women
+set.seed(4131)
+tibble(
+  id = seq_len(N),
+  treatment = sample(0:1, N, replace = TRUE),
+  age = round(runif(N, 18, 85)),
+  woman = c(rep(1, N_women), rep(0, N_men)),
+  sepsis = c(sample(0:1, N_women, TRUE, c(0.3, 0.7)), sample(0:1, N_men, TRUE)),
+  icu_los = round(c(
+    rlnorm(N_women, log(5 + sepsis), log(5)), 
+    rlnorm(N_men, log(7 + sepsis), log(4))
+  ), 2),
+  hosp_los = round(pmax(icu_los, icu_los * (3.5 + rnorm(N, 0, 0.5))), 2)
+) %>% 
+  filter(icu_los < 365 | hosp_los < 365) %>% 
+  mutate(
+    dead_at_1y = 0L + (0.5 < expit(-18 - 0.5 * treatment + 0.3 * age - 0.2 * woman + 0.4 * sepsis))
+  ) %>% 
+  # summarise(mean(dead_at_1y))
+  write_tsv("data/icu.tsv")
+```

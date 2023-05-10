@@ -1,0 +1,800 @@
+---
+title: "Exercises for Introduction to Bayesian analysis"
+author: "Benjamin Skov Kaas-Hansen"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    toc: yes
+    highlight: haddock
+    theme: paper
+    # code_folding: show
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+------------------------------------------------------------------------
+
+## To do for 2024 version of the course
+
+- Part A of exercises needs to be a lot shorter
+- Remove everything about simple sampling from slide deck and exercises
+- Go straight to using stan instead
+- Need to explain MCMC sampling in simple terms, with 1- og 2D PDF
+- Consider making e.g. Shiny that produces "community-prior values" for both 
+  proportion and continuous variables
+
+------------------------------------------------------------------------
+
+All of these exercises use the R program package. We will be needing a
+few packages (all on CRAN). You can install these with the
+`install.packages()` function:
+
+```{r eval=FALSE}
+install.packages(c(
+  "rstan", "rstanarm", "bayesplot", "coda",
+  "dplyr", "ggplot2", "purrr", 
+  "adaptr"
+))
+```
+
+```{r message=FALSE, class.source = 'fold-show'}
+for (p in c("dplyr", "ggplot2", "purrr", "adaptr", "coda")) {
+  library(p, character.only = TRUE)
+}
+```
+
+The exercises revolve around two types of problems: introductory code
+that you should run through to make sure you understand how to use the
+function(s) and interpret the output, and additional questions to
+explore and discuss to dig a bit deeper into Bayesian data analysis and
+inference.
+
+```{r echo=FALSE}
+knitr::opts_chunk$set(include = TRUE, eval = TRUE)
+```
+
+## A. Bayesian analysis "by hand"
+
+In this exercise we will take the example with the ICU patients from the
+lecture and investigate what happens to the conclusions from a Bayesian
+analysis when we modify the prior and have more observations. This will
+also address why the straight-forward sampling approach might not be
+sufficiently efficient and why specialised software would be needed.
+
+1.  Run the code below and make sure you understand what is going on in
+    each line
+
+    ```{r include=TRUE, class.source = 'fold-show'}
+    n_samples <- 10000
+    n_obs <- 22 
+    n_women <- 8 
+
+    theta <- runif(n_samples) 
+    cond_likelihood_draws <- rbinom(n_samples, size = n_obs, prob = theta) 
+    posterior_draws <- theta[cond_likelihood_draws == n_women] 
+    ```
+
+2.  Plot a histogram of the posterior draws of theta (i.e. theta values
+    you have kept because they gave rise to an outcome matching our
+    original outcome)
+
+    ```{r}
+    ggplot() + 
+      geom_histogram(aes(posterior_draws), bins = 10)
+
+    ggplot() +
+      stat_ecdf(aes(posterior_draws))
+    ```
+
+3.  Compute the median and 95% CrI of the posterior; provide a guess of
+    the MAP
+
+    -   Hint: R doesn't have a built-in function for finding the mode of
+        a distribution
+
+    ```{r}
+    dist_mode <- function(x, ...) { # ... passed on to density()
+      with(density(x, ...), x[which.max(y)])
+    }
+
+    dist_mode_bad <- function(x, n_digits = 2) { # helper function; finds mode of x
+        x <- round(x, n_digits)
+        ux <- unique(x)
+        ux[which.max(tabulate(match(x, ux)))][1] # index in case of ties
+    }
+
+    median(posterior_draws)
+    quantile(posterior_draws, c(0.025, 0.5, 0.975))
+    dist_mode(posterior_draws)
+    ```
+
+4.  Now use a non-uniform distribution
+
+    -   Hint: you are free to pick any non-uniform distribution that
+        yields only values between 0 and 1; after all, it's a prior over
+        a proportion (which can be neither below 0 nor above 1)
+
+    -   Hint: a beta distribution could be interesting. Use the
+        `rbeta()` function and select some interesting shape parameters
+        that would express realistic prior expectations about the
+        distribution between women and men
+        
+    ```{r}
+    posterior_theta <- function(a, b, N = n_obs, z = n_women) {
+        theta <- rbeta(n_samples, a, b) 
+        cond_likelihood_draws <- rbinom(n_samples, size = N, prob = theta) 
+        return(theta[z == cond_likelihood_draws])
+    }
+
+    prior_theta_11_11 <- rbeta(n_samples, 11, 11)
+    ggplot() +
+       geom_density(aes(prior_theta_11_11))
+    post_theta_11_11 <- posterior_theta(11, 11)
+    ```
+
+
+5.  Visualise the prior distribution
+
+    -   Hint: this can be done with e.g. histograms, density plots and
+        empirical cumulative density plots
+
+    ```{r}
+    ggplot() +
+      stat_density(aes(x = prior_theta_11_11), geom = "line", linetype = 2) +
+      stat_density(aes(x = post_theta_11_11), geom = "line") +
+      stat_density(aes(x = posterior_draws), geom = "line", colour = "red") +
+      labs(x = NULL, y = NULL)
+    ```
+
+6.  Repeat the analysis from point 1 above with the new prior. Plot the
+    posterior distribution, and compute the MAP and median posterior
+    value.
+
+    ```{r}
+    # plot: see above
+    median(post_theta_11_11)
+    dist_mode(post_theta_11_11)
+    ```
+
+7.  Conclude on your analysis with words
+
+    ```{r}
+    # The distribution is pulled downward towards lower proportion of women
+    ```
+
+8.  How did the results with your own prior change compared to the
+    initial analysis? Why?
+
+9.  How many thetas are part of the posterior distribution? How does
+    that compare to `n_samples`? What is the problem here?
+
+    -   Hint: try to rerun the analysis a few times, computing each time
+        the median and 95% CrI. Then, compare these summary statistics
+        across runs.
+
+    ```{r}
+    length(post_theta_11_11)
+    length(post_theta_11_11) / n_samples
+    
+    map_dfr(1:10, ~ quantile(posterior_theta(11, 11), c(0.025, 0.5, 0.975)))
+    ```
+
+
+10. Give a rule a thumb as to the number of effective samples (i.e. those prior 
+samples giving rise to the observed outcome) you need to obtain stable results. 
+
+    -   Hint: first define "stable results", e.g. how much the bounds of the 95% 
+        CrI may change across runs.
+
+11. Now assume that we had had 10 ICUs (all with 22 beds) but with the
+    same distribution between sexes (i.e. `n_obs <- 220` and
+    `n_women <- 80`). Rerun the analysis with your own prior and compare
+    the results from this larger dataset to the previous analysis. How
+    are they similar? How are they different?
+
+    ```{r}
+    # Data clearly dominate the prior
+
+    posterior_draws_large <- posterior_theta(11, 11, 220, 80)
+    posterior_draws_large_11_11 <- posterior_theta(110, 110, 220, 80)
+    
+
+    median(post_theta_11_11)
+    median(posterior_draws_large)
+
+    dist_mode(post_theta_11_11)
+    dist_mode(posterior_draws_large)
+
+    ggplot() +
+      stat_density(aes(x = prior_theta_11_11), geom = "line", linetype = 2) +
+      stat_density(aes(posterior_draws, colour = "1 ICU"), geom = "line") +
+      stat_density(aes(posterior_draws_large, colour = "10 ICUs"), geom = "line")  +
+      stat_density(aes(posterior_draws_large_11_11, colour = "10 ICUs, strong prior"), geom = "line") 
+    ```
+
+12. Reusing the posterior samples from exercise A6, find the percentile
+    95% CrI of the posterior distribution using `quantile()`. Then,
+    compute also the 95% highest posterior density interval (HPDI) and
+    comment on any differences that may emerge.
+    
+    -   Hint: convert first to an `mcmc` object (the `coda` package has
+        the functions to do this)
+
+    -   Hint: try to plot the distribution of the posterior samples and
+        draw both the percentile CrI and the HPDI.
+
+    ```{r}
+    cri <- quantile(post_theta_11_11, c(0.025, 0.975))
+    hpdi <- HPDinterval(as.mcmc(post_theta_11_11), prob = 0.95)
+
+    plot_df <- with(density(post_theta_11_11), tibble(x, dens = y)) %>% 
+      mutate(
+        in_95cri = between(x, cri[1], cri[2]),
+        in_95hpdi = between(x, hpdi[1], hpdi[2])
+      )
+
+    ggplot(plot_df, aes(x = x, y = dens)) +
+      geom_line() +
+      geom_area(aes(fill = "95% CrI"), ~ filter(., in_95cri), alpha = 0.2) +
+      geom_area(aes(fill = "95% HPDI"), ~ filter(., in_95hpdi), alpha = 0.2)
+    
+    ggplot() +
+      geom_density(aes(rbeta(10000, 11, 11)))
+    ```
+
+
+## B. Devising and using priors
+
+1.  Expecting an in-ICU mortality risk of 20% in patients with septic
+    shock, devise a couple of priors that express this expectation with
+    multiple levels of certainty. Compute the median and 95% interval
+
+    -   Hint: you can (but don't have to!) use `find_beta_params()` from
+        the `adaptr` package
+
+    ```{r}
+    map_dfr(c(0.025, 0.05, 0.1), ~ find_beta_params(0.2, ., n_dec = 2))
+    ```
+
+2.  Devise priors with the same levels of certainty but with other
+    in-ICU mortality risks
+
+    ```{r}
+    expand.grid(theta = c(0.15, 0.2, 0.25), boundary = c(0.025, 0.05, 0.1)) %>% 
+      bind_cols(with(., map2_dfr(theta, boundary, find_beta_params, n_dec = 2)))
+    ```
+
+3.  Assume that you are working at a production facility with quality
+    control of a novel drug miraculixaban. You want to estimate the
+    probability of producing a faulty batch in the coming year. In the
+    previous year 365 batches were produced; none were faulty.
+
+    Estimate the probability of faulty batch based on a frequentist
+    analysis of the data. What is your estimated proportion? What is
+    your forecast of faulty batches for the coming year? Can any happen?
+
+    -   Hint: the maximum likelihood estimate of a binomial variable
+        with $k$ successes (here, faulty batches) in $N$ trials (here,
+        days in a year) is $\hat \theta = \tfrac{k}{N}$
+
+    -   Hint: recall the definitions of probability from the slides
+
+    ```{r}
+    #' The maximum likelihood estimator theta (MLE) of a binomial variable with 
+    #' k successes in n k/n. Because k=0, the MLE is zero, leaving no uncertainty, 
+    #' and so there’s no standard error, making it impossible to actually derive 
+    #' a confidence interval. So the forecast would be 0 failures.
+    ```
+
+4.  Use a Bayesian modeling approach to estimate the probability of a
+    faulty batch for the coming year. How/why can the conclusion change?
+    Which result is more reasonable?
+
+    -   Hint: which prior is conjugate to a binomial likelihood (which
+        is what we have here)?
+
+    ```{r}
+    #' For a beta(a, b) prior and a binomial(n, theta) likelihood, the posterior is 
+    #' beta(a + k, b + n - k), because the beta distribution is a conjugate prior 
+    #' to the binomial likelihood. Thus, prop_failure is the posterior 
+    #' distribution of the expected probability of producing a failed drug, 
+    #' assuming a beta(0.5, 0.5) prior (Jeffrey’s prior).
+
+    prob_failure <- rbeta(10000, 0.5 + 0, 0.5 + 365)
+    ggplot() + geom_density(aes(prob_failure), trim = TRUE)
+    
+    ggplot() + 
+      geom_density(aes(rbeta(10000, 0.5 + 0, 0.5 + 365), colour = "0.5, 0.5")) +
+      geom_density(aes(rbeta(10000, 1 + 0, 1 + 365), colour = "1, 1")) +
+      geom_density(aes(rbeta(10000, 1 + 0, 364 + 365), colour = "1, 364"))
+
+    # Distribution of the expected number of faults with 365 batches produced:
+    ggplot() + geom_histogram(aes(prob_failure * 365), binwidth = 1)
+    ```
+
+
+5.  Imagine you know 10 experts with experience in the same type of
+    production line as your factory. You would like to survey these
+    experts and use their responses to devise an appropriate prior for
+    the annual fault probability. How would you go about that?
+
+    ```{r}
+    #' One could ask them to give the number of faulty batches out of 365 
+    #' produced. Then, one could compute the pooled proportion and "rescale" 
+    #' to arrive at a 365-day time frame. For example:
+
+    survey_responses <- c(1, 1, 0, 0, 2, 1, 2, 1, 1, 0)
+    mean(survey_responses)
+
+    ggplot() + 
+      stat_function(fun = ~ dbeta(., 0.9, 365 - 0.9), n = 1000, xlim = c(0, 0.05))
+    ```
+
+## C. Using rstanarm
+
+We will now perform the same analysis as we did above but using the
+`rstanarm` package. We will start by loading the relevant package and
+create a dataset that can be used for logistic regression.
+
+```{r include=TRUE, message=FALSE, class.source = 'fold-show'}
+library("rstanarm") 
+library("bayesplot")
+dta <- data.frame(woman = rep(0:1, times = c(22 - 8, 8)))
+```
+
+1.  Use the `stan_glm()` function to fit a logistic model. Remember that
+    a logistic model fits parameters on the log-odds (= logit) scale.
+
+    -   Hint: remember to set `family = binomial` to run a logistic
+        regression
+
+    -   Hint: to fit a regression model without covariates, the formula should 
+        have the form `y ~ 1` where `y` is the outcome variable in the data.
+
+```{r}
+fit <- stan_glm(
+  woman ~ 1, 
+  data = dta, 
+  family = binomial, 
+  cores = 1,
+  refresh = 0 # just to suppress sampler output (avoids cluttering
+)
+```
+  
+
+2.  Extract the posterior values and plot the posterior distribution of
+    the intercept.
+
+    -   Hint: use `as.matrix()` and `mcmc_areas()`
+
+```{r}
+posteriors <- as.matrix(fit)
+as_tibble(fit)
+
+mcmc_areas(posteriors)
+```
+
+3.  Compute the MAP and median posterior on the probability scale.
+
+    -   Hint: recall that $g(x) = \frac{\exp(x)}{1 + \exp(x)}$ is the
+        inverse function to the logistic transform
+        
+    -   Hint: look at `?posterior_epred`
+
+    ```{r}
+    g <- function(logit) {
+      exp(logit) / (1 + exp(logit))
+    }
+    
+    ggplot() +
+      geom_density(aes(g(posteriors[, 1])))
+    ```
+
+
+4.  `stan_glm()` uses a zero-mean normal distribution as prior for the
+    intercept by default. Thus, we might not get the same posterior
+    distribution as we did above. How could we modify the prior
+    distribution to make it resemble a uniform distribution? Try to
+    refit the model with this uniform distribution
+
+    -   Hint: look at `?stan_glm` and
+        <https://mc-stan.org/rstanarm/articles/priors.html>
+
+    ```{r}
+    fit_uniform_prior <- stan_glm(
+      woman ~ 1, 
+      data = dta, 
+      family = binomial, 
+      prior_intercept = NULL, # uses uniform prior
+      cores = 1,
+      refresh = 0 # just to suppress sampler output (avoids cluttering
+    )
+    ```
+  
+
+5.  Try to change the prior distribution to e.g. `normal(0.0, 0.1)` and
+    rerun the analysis. How does this impact the conclusion? Why?
+    
+    ```{r}
+    fit_normal_prior <- stan_glm(
+      woman ~ 1, 
+      data = dta, 
+      family = binomial, 
+      prior_intercept = normal(0.0, 0.1),
+      cores = 1,
+      refresh = 0 # just to suppress sampler output (avoids cluttering)
+    )
+    ```
+
+6.  Try your own prior and see how it influences the result.
+
+    ```{r}
+    #' Same as above but using whatever prior you used
+    ```
+
+7.  Prior predictive checks are like posterior predictive checks, only that they ignore the data and generates data based solely on the priors. This can often be useful to check that the priors you have specified will yield data that look reasonable for the modelling task at hand. Carry out a prior predictive check of the three models above (default prior, `normal(0.0, 0.1)` and your own). All good?
+
+    -   Hint: see the `prior_PD` argument in `?stan_glm`.
+
+    ```{r}
+    # Create new larger dataset
+    update(fit, prior_PD = TRUE)
+    ```
+
+8.  Now assume, again, that we had had data from 10 ICUs (as above).
+    Construct a new data frame akin to the one above but with more
+    observations. Then, rerun the analysis with your own prior and
+    compare the results from this larger dataset to those of the
+    previous analysis. How are they similar? How do they differ?
+    
+    ```{r}
+    # Create new larger dataset
+    dta_large <- data.frame(woman = rep(0:1, times = c(220 - 80, 80)))
+    
+    fit_large <- update(fit, data = dta_large) # do the same with the other fits
+    summary(fit_large)
+    ```
+    
+
+## D. Multiple linear regression
+
+In this exercise we will use data from a fictive RCT with ICU patients
+randomised to miraculixaban (`treatment = 1`) vs. standard of care
+(`treatment = 0`) . The dataset also contains a few baseline covariates
+(`age,` `woman` and `sepsis`) along with outcome variables (`icu_los`,
+`hosp_los` and `dead_at_1y`).
+
+Download the data and take a look:
+
+```{r include=TRUE, eval=TRUE, class.source = 'fold-show'}
+icu <- read.delim("https://raw.githubusercontent.com/epiben/course_adv_stats_ucph/main/bayesian/icu.tsv")
+head(icu)
+```
+
+1.  Analyse the data with a regular frequentist model, estimating the
+    effect of relevant covariates on the ICU length of stay. Ignore the
+    `treatment` covariate for now. What are your overall conclusions?
+    What are your conclusions about the impact of sepsis on ICU
+    length-of-stay?
+
+    -   Hint: relevant covariates should not contain information about
+        the future
+
+    ```{r}
+    freq_fit <- lm(icu_los ~ age + sepsis + woman, data = icu)
+    summary(freq_fit)
+    ```
+
+2.  Analyse the same model using a Bayesian analysis with the
+    `stan_glm()` function. Try to specify reasonable priors
+
+    ```{r cache=TRUE}
+    bayes_fit <- stan_glm(
+      icu_los ~ age + sepsis + woman,
+      data = icu,
+      seed = 4131,
+      refresh = 0
+    )
+    
+    summary(bayes_fit)
+    ```
+
+3.  Examine the fit of the model. Convergence okay?
+
+    ```{r}
+    rhat(bayes_fit)
+    mcmc_dens_overlay(bayes_fit)
+    mcmc_trace(bayes_fit)
+    ```
+
+4.  Use shinystan to investigate the model.
+
+    ```{r eval=FALSE}
+    launch_shinystan(bayes_fit)
+    ```
+
+5.  Increase the number of chains to, say, 8 and the double the number
+    of iterations. Examine the fitted model (for example with
+    shinystan). What's the impact on the results? What problems could
+    more and longer chains potentially fix?
+
+    ```{r cache=TRUE}
+    bayes_fit_more_longer <- stan_glm(
+      icu_los ~ age + sepsis + woman,
+      data = icu,
+      iter = 8000,
+      chains = 8,
+      seed = 4131,
+      refresh = 0
+    )
+
+    summary(bayes_fit_more_longer)
+    ```
+
+6.  Look at the posterior distribution of the `sepsis` parameter. What
+    is your conclusion about the effect of sepsis on ICU length of stay?
+    What is the probability that the effect of sepsis is associated with 
+    shortened ICU-LOS? Shortening by more than 1 day?
+
+    ```{r}
+    mcmc_areas(bayes_fit, pars = "sepsis", prob = 0.95)
+
+    mean(as.data.frame(bayes_fit)$sepsis < 0)
+    mean(as.data.frame(bayes_fit)$sepsis < -1)
+    mean(as.data.frame(bayes_fit)$sepsis < -2)
+    mean(as.data.frame(bayes_fit)$sepsis < -5)
+    ```
+
+7.  How might you use a survey to devise an informative prior on the
+    effect of age on ICU length of stay?
+    
+    ```{r}
+    #' One could, for example, ask respondents to distribute 20 X's on a grid with
+    #' how many days longer a patient would be expected to remain admitted for
+    #' each decade they are older. Then, combine all those X's into one and fit 
+    #' a Normal distribution to it whose mean and sd would be the prior values.
+    #' 
+    #' One respondents might submit this:
+    #' 
+    #' ^
+    #' |           X X X 
+    #' |         X X X X X  
+    #' |         X X X X X  
+    #' |       X X X X X X X 
+    #' |----------------------->
+    ```
+    
+
+8.  We can use leave-one-out-cross-validation (LOO) information
+    criterion (IC) to see how well different models predict the outcome.
+    These LOOICs can then be compared. Like other information criteria,
+    lower is better. Importantly, the LOOIC comes with a standard error.
+    Fit a model without the sepsis covariate and compare the LOOIC
+    between the original and the reduced models.
+
+    -   Hint: see `?loo` and `?loo_compare`
+
+    ```{r cache=TRUE}
+    bayes_fit_wo_sepsis <- stan_glm(
+      icu_los ~ age + woman,
+      data = icu,
+      seed = 4131,
+      refresh = 0
+    )
+
+    loo_fit <- loo(bayes_fit)
+    loo_fit_wo_sepsis <- loo(bayes_fit_wo_sepsis)
+    loo_compare(loo_fit, loo_fit_wo_sepsis)
+    ```
+
+
+## E. Effect-size estimation in clinical trial
+
+1.  A friend of yours wants to test a new treatment obelixaban against
+    standard of care, in ICU patients with septic shock. Pre-trial
+    evidence suggest that the 30-day mortality in this patient group
+    receiving standard of care is roughly 20% (95% CrI: 5%-35%). Your
+    friend's main results with respect to 30-day mortality are in the
+    following 2x2 table (assume no loss to follow-up):
+
+    <div>
+
+    |                      | Standard of care | Miraculixaban |
+    |----------------------|:----------------:|:-------------:|
+    | No. alive at 30 days |       161        |      164      |
+    | No. dead at 30 days  |        46        |      35       |
+
+    </div>
+
+    Using an appropriate prior, estimate the effect size of obelixaban
+    compared to standard of care.
+    
+    -   Hint: recall that derived quantities, based on posterior
+        parameter estimates, can be computed directly with the posterior
+        samples of the parameters
+
+    -   Hint: effect-size metrics include risk ratio (RR), risk
+        difference (RD) and number-needed-to-treat (NNT)
+
+    -   Hint: use what you learnt in exercises A6 and B1
+
+    ```{r}
+    find_beta_params(0.2, 0.05)
+    post_estimates <- tibble(
+      mortality_prop_control = rbeta(10000, 3 + 46, 13 + 161),
+      mortality_prop_obelixaban = rbeta(10000, 3 + 35, 13 + 164),
+      RR = mortality_prop_obelixaban / mortality_prop_control
+    )
+    quantile(post_estimates$RR, c(0.025, 0.5, 0.975))
+    ```
+
+
+2.  After helping your friend with their unadjusted effect-size
+    estimation above, you return to your own results of the effect of
+    miraculixaban against standard of care on 1-year mortality (same
+    data as in section D). \
+    Model the 1-year mortality risk using the four baseline covariates
+    in the dataset (`treatment`, `age`, `woman` and `sepsis`) and
+    default priors. What do you conclude about the conditional effects
+    of miraculixaban on the 1-year mortality risk? Can you conclude
+    anything about the effects of the other covariates?
+
+    ```{r cache=TRUE}
+    mortality_fit <- stan_glm(
+      dead_at_1y ~ treatment + age + woman + sepsis,
+      data = icu,
+      family = binomial,
+      seed = 4131,
+      refresh = 0 # suppress fitting progress output
+    )
+
+    summary(mortality_fit, probs = c(0.025, 0.5, 0.975))
+
+    # Convergence diagnostics
+    rhat(mortality_fit)
+    mcmc_dens_overlay(mortality_fit)
+    mcmc_trace(mortality_fit)
+
+    mcmc_areas(
+      mortality_fit, 
+      point_est = "median",
+      pars = vars(-"(Intercept)"),
+      prob = 0.95
+    ) +
+      scale_x_continuous(
+        breaks = log(c(0.1, 0.2, 0.33, 0.5, 0.67, 1, 1.5, 2, 3, 5, 10)),
+        labels = exp
+      )
+    ```
+
+3.  Since you need to get your new drug approved by the authorities, you
+    decide to use a somewhat skeptical prior on the treatment effect so
+    that an estimated effect will convince even the grumpiest regulator.
+    How could you devise such a skeptical prior for the effect of the
+    treatment?
+
+    -   Hint: remember that coefficients in a logistic regression are
+        log-OR's and that the distribution of log-OR can be expressed in
+        terms of an equivalent trial of a given size with a given event
+        proportion.
+
+    ```{r}
+    r <- 0.35
+    N <- 200
+    (sigma <- sqrt(4/(1-r)/N + 4/r/N))
+
+    ggplot() + 
+      geom_density(aes(rlnorm(1000, meanlog = 0, sdlog = sigma))) +
+      scale_x_log10(breaks = c(0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3))
+    ```
+
+4.  Rerun the logistic regression with this new informative prior.
+    What's the impact on the (estimated) conditional treatment effect?
+
+    ```{r message=FALSE, cache=TRUE}
+    # Only difference is the scale of the first parameter
+    priors <- normal(
+      location = c(0, 0, 0, 0),
+      scale = c(sigma, 2.5, 2.5, 2.5)
+    )
+
+    mortality_fit_skeptical <- stan_glm(
+      dead_at_1y ~ treatment + age + woman + sepsis,
+      data = icu,
+      prior = priors,
+      family = binomial,
+      seed = 4131,
+      refresh = 0 # suppress fitting progress output
+    )
+
+    summary(mortality_fit_skeptical, probs = c(0.025, 0.5, 0.975))
+
+    prior_summary(mortality_fit_skeptical)
+
+    map(list(mortality_fit, mortality_fit_skeptical), as.data.frame) %>% 
+      map_dfc("treatment") %>% 
+      setNames(c("default", "skeptical")) %>% 
+      ggplot() +
+        geom_density(aes(x = exp(default), colour = "default")) +
+        geom_density(aes(x = exp(skeptical), colour = "skeptical")) +
+        scale_x_log10(breaks = c(0.1, 0.2, 0.33, 0.5, 0.67, 1, 1.5, 2, 3, 5, 10)) +
+        labs(x = "OR", y = NULL)
+    ```
+
+5.  Compute average treatment effect using G-computation
+
+    -   Hint: predict the posterior probabilities of death for all patients if 
+        they had all received the miraculixaban and if they had all received 
+        standard of care Take a look at ?posterior_epred
+    -   Hint: here are two links for good introductions to G-computation:
+        https://github.com/kathoffman/causal-inference-visual-guides/blob/master/visual-guides/G-Computation.pdf, 
+        https://doi.org/10.1093%2Fije%2Fdyw323
+
+    ```{r}
+    posterior_marginal_estimates <- map_dfc(
+      c(miraculixaban = 1, control = 0),
+      ~ rowMeans(posterior_epred(mortality_fit, mutate(icu, treatment = .)))
+    ) %>% 
+      mutate(
+        risk_ratio = miraculixaban / control,
+        risk_diff = control - miraculixaban,
+        NNT = 1/risk_diff
+      )
+
+    ggplot(posterior_marginal_estimates) + 
+      geom_density(aes(risk_ratio)) 
+    ```
+
+
+## F. Coding up linear regression in Stan
+
+**NB! We didn't make it here**
+
+Build and run your own Stan model of a linear regression as the one in
+D2 above. Analyze the full data with the lung capacity as a Stan model
+and run it. Argue for all the choices that you have made so far
+regarding priors, likelihood, etc. Recall from the lecture that a basic
+Stan program contains three sections: data, parameters, and model. Below
+is the sample code for a standard linear regression analysis:
+
+``` stan
+data {
+  int<lower=1> N;
+  vector[N] y;
+  vector[N] x;
+}
+
+parameters {
+  real intercept;
+  real beta;
+  real<lower=0> sigma; // note lower limit
+}
+
+model {
+  // Prior distributions
+  intercept ~ normal(0, 10);
+  beta ~ normal(0, 10); 
+  sigma ~ cauchy(0, 2.5);
+  
+  // Likelihood
+  y ~ normal(intercept + beta * x, sigma);
+}
+```
+
+1.  Modify this code to use all covariates and run the analysis
+
+    -   Hint: start by including and using the two numeric variables
+        first.
+
+    -   Hint: then include the categorical variables as numeric
+        variables (with values either 0 or 1). This works because the
+        categorical predictors are binary.
+
+## G. Resources
+
+- Book - Richard McElreath: Statistical Rethinking [https://xcelab.net/rm/statistical-rethinking/](https://xcelab.net/rm/statistical-rethinking/). Excellent introduction to Bayesian analysis. You really should start here.
+- Article - Michael Betancourt: A Conceptual Introduction to Hamiltonian Monte Carlo [https://arxiv.org/pdf/1701.02434.pdf](https://arxiv.org/pdf/1701.02434.pdf). Excellent paper on HMC; it is a bit technical, but even if you skip the most technical parts and equations, there's lots of learning in there.
+- Article - Goligher et al.: Extracorporeal membrane oxygenation for severe acute respiratory distress syndrome and posterior probability of mortality benefit in a post hoc bayesian analysis of a randomized clinical trial [https://doi.org/10.1001/jama.2018.14276](10.1001/jama.2018.14276)
+- Book - James V. Stone: Bayes' Rule: a tutorial introduction to Bayesian analysis. A bit old but with a fun-ish take on things and not too much math.
+- Book - Andrew Gelman et al.: Bayesian Dataz Analysis. The Bible but really not accessible and in no way the place to start for most people.
