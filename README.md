@@ -11,5 +11,5 @@ Sessions given autumn 2020 and 2021 (the files below are from the last iteration
 ## Part B: Introduction to Bayesian data analysis
 Session given spring 2023
 
-- Slide deck (download HTML version to view properly) [ [HTML](bayesian/slide_deck.html) [Quarto markdowm](bayesian/slide_deck.qmd) ]
-- Exercises [ [HTML](bayesian/exercises.html) [Rmarkdown](bayesian/exercises.Rmd) ]
+- Slide deck (download HTML version to view properly) [ [HTML](bayesian/slide_deck.html) ] [ [Quarto markdowm](bayesian/slide_deck.qmd) ]
+- Exercises [ [HTML](bayesian/exercises.html) ] [ [Rmarkdown](bayesian/exercises.Rmd) ]
